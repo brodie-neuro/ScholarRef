@@ -1,0 +1,87 @@
+name: Windows Package
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[build]"
+
+      - name: Verify GUI import
+        run: python -c "import scholarref_gui; print('gui-import-ok')"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build Windows installer and release artifacts
+        run: powershell -ExecutionPolicy Bypass -File .\scripts\build_windows_installer.ps1 -SkipTests
+
+      - name: Run silent installer smoke test
+        run: powershell -ExecutionPolicy Bypass -File .\scripts\test_windows_installer.ps1
+
+      - name: Write workflow summary
+        shell: pwsh
+        run: |
+          $manifest = Get-Content dist\release-manifest.json | ConvertFrom-Json
+          $hashes = Get-Content dist\SHA256SUMS.txt
+          @"
+          ## ScholarRef Windows Artifacts
+          - Version: $($manifest.version)
+          - Signed: $($manifest.signed)
+          - Release model: unsigned freeware
+          - Supported targets: Windows 10 x64, Windows 11 x64
+
+          ### SHA-256
+          ```text
+          $($hashes -join "`n")
+          ```
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScholarRef-windows-x64
+          path: |
+            dist/ScholarRef-windows-x64.zip
+            dist/ScholarRef-setup-*.exe
+            dist/SHA256SUMS.txt
+            dist/release-manifest.json
+
+      - name: Attach assets to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ScholarRef-windows-x64.zip
+            dist/ScholarRef-setup-*.exe
+            dist/SHA256SUMS.txt
+            dist/release-manifest.json

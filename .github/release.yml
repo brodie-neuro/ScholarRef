@@ -1,0 +1,18 @@
+changelog:
+  categories:
+    - title: Conversion Engine
+      labels:
+        - bug
+        - enhancement
+        - conversion
+    - title: Windows Packaging
+      labels:
+        - packaging
+        - installer
+        - release
+    - title: Documentation
+      labels:
+        - docs
+    - title: Other Changes
+      labels:
+        - "*"

@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Latest Windows Release
+    url: https://github.com/brodie/ScholarRef/releases
+    about: Download the current installer, portable zip, checksums, and release manifest.
+  - name: Windows Release Notes
+    url: https://github.com/brodie/ScholarRef/blob/main/docs/windows-release-checklist.md
+    about: Read the current Windows release and verification guidance before reporting install issues.

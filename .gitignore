@@ -25,6 +25,7 @@ MANIFEST
 # ── Virtual Environments ──
 .env
 .venv
+.venv-release-smoke/
 env/
 venv/
 ENV/

@@ -71,17 +71,14 @@ def _split_authors_and_title(vancouver_rest: str) -> Tuple[str, str]:
 
 
 def _find_reference_header(doc: Document) -> int:
-    for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in ("Reference List", "References"):
-            return i
-    return -1
+    return sref.ensure_reference_header(doc)
 
 
 def _extract_output_references(doc: Document) -> Tuple[int, List[OutputReference], List[str]]:
     issues: List[str] = []
     ref_idx = _find_reference_header(doc)
     if ref_idx == -1:
-        return -1, [], ["Could not find 'References' header in output document."]
+        return -1, [], ["Could not find reference header in output document."]
 
     refs: List[OutputReference] = []
     for p in doc.paragraphs[ref_idx + 1 :]:

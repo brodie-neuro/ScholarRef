@@ -161,10 +161,27 @@ def _norm_text(text: str) -> str:
     return re.sub(r"\s+", " ", t)
 
 
+REFERENCE_HEADER_LABELS = {
+    "references",
+    "reference list",
+    "bibliography",
+    "works cited",
+    "literature cited",
+}
+
+
+def normalized_reference_header_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9]+", " ", text or "").strip()).strip().lower()
+
+
+def is_reference_header_text(text: str) -> bool:
+    return normalized_reference_header_text(text) in REFERENCE_HEADER_LABELS
+
+
 def _find_ref_headers(doc: Document) -> List[int]:
     out: List[int] = []
     for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in ("Reference List", "References"):
+        if is_reference_header_text(p.text):
             out.append(i)
     return out
 
@@ -174,6 +191,35 @@ def _find_ref_header(doc: Document, occurrence: int = 1) -> int:
     if occurrence < 1 or occurrence > len(headers):
         return -1
     return headers[occurrence - 1]
+
+
+def _reference_entry_score(text: str) -> int:
+    s = _norm_space(text)
+    if not s:
+        return 0
+
+    score = 0
+    if re.match(r"^\[?\d+\]?[\.\)]\s+", s):
+        score += 4
+    if re.match(r"^[A-Z][A-Za-z'`\-]+,\s*[A-Z]", s):
+        score += 2
+    if re.match(r"^[A-Z][A-Za-z'`\-]+(?:\s+[A-Z][A-Za-z'`\-]+)?\s+[A-Z]{1,4}[.,]", s):
+        score += 2
+    if re.search(r"\((?:19|20)\d{2}[a-z]?(?:,\s*[^)]*)?\)", s):
+        score += 2
+    if re.search(r"(?<!\d)(?:19|20)\d{2}[a-z]?\s*;\s*\d+", s):
+        score += 3
+    if re.search(r"\bpp?\.\s*\d", s, flags=re.I):
+        score += 2
+    if re.search(r"\d+\([^)]*\)\s*[:,]\s*\d", s):
+        score += 2
+    if re.search(r"https?://|doi:", s, flags=re.I):
+        score += 1
+    if re.search(r"\bet al\.?\b", s, flags=re.I):
+        score += 1
+    if len(s) >= 40:
+        score += 1
+    return score
 
 
 def _citation_key_parts(key: str) -> Tuple[str, str]:
@@ -292,8 +338,18 @@ def preflight_docx(
     failures: List[str] = []
 
     headers = _find_ref_headers(doc)
+    auto_ref_start = -1
     if not headers:
-        failures.append("Could not find reference header ('Reference List' or 'References').")
+        auto_ref_start = auto_detect_reference_start(doc)
+        if auto_ref_start == -1:
+            failures.append(
+                "Could not find reference header or infer a reference list automatically."
+            )
+        else:
+            headers = [auto_ref_start]
+            warnings.append(
+                f"No explicit reference header found; auto-detected reference list starting at paragraph index {auto_ref_start}."
+            )
     elif ref_header_n < 1 or ref_header_n > len(headers):
         failures.append(
             f"Requested reference header #{ref_header_n} but only {len(headers)} reference header(s) found."
@@ -357,6 +413,7 @@ def preflight_docx(
         "warnings": warnings,
         "failures": failures,
         "ref_headers": headers,
+        "auto_ref_start": auto_ref_start,
     }
     return -1
 
@@ -366,9 +423,8 @@ def _set_references_header(doc: Document, ref_idx: int) -> None:
         return
     p = doc.paragraphs[ref_idx]
     txt = full_text(p)
-    if txt.strip() == "Reference List":
-        start = txt.find("Reference List")
-        replace_in_runs(p, [(start, start + len("Reference List"), "References")])
+    if is_reference_header_text(txt) and txt.strip() != "References":
+        p.text = "References"
 
 
 def _para_style_name(para) -> str:
@@ -379,28 +435,7 @@ def _para_style_name(para) -> str:
 
 
 def _looks_like_reference_entry(text: str) -> bool:
-    s = _norm_space(text)
-    if not s:
-        return False
-    if re.match(r"^\[?\d+\]?[\.\)]\s+", s):
-        return True
-    if re.search(r"\((?:19|20)\d{2}[a-z]?(?:,\s*[^)]*)?\)", s):
-        return True
-    if re.search(r"(?<!\d)(?:19|20)\d{2}[a-z]?\s*;\s*\d+", s):
-        return True
-    if re.search(r"https?://|doi:", s, flags=re.I):
-        return True
-    if re.search(r"\bet al\.?\b", s, flags=re.I):
-        return True
-    if re.match(r"^[A-Z][A-Za-z'`\-]+,\s*[A-Z]", s):
-        return True
-    if re.match(r"^[A-Z][A-Za-z'`\-]+(?:\s+[A-Z][A-Za-z'`\-]+)?\s+[A-Z]{1,4}[.,]", s):
-        return True
-    if re.search(r"\bpp?\.\s*\d", s, flags=re.I):
-        return True
-    if re.search(r"\d+\([^)]*\)\s*[:,]\s*\d", s):
-        return True
-    return False
+    return _reference_entry_score(text) >= 3
 
 
 def _looks_like_reference_section_break(para) -> bool:
@@ -443,9 +478,9 @@ def _next_nonempty_paragraph(doc: Document, start_idx: int):
     return None
 
 
-def _collect_ref_paragraphs(doc: Document, ref_idx: int) -> List[Tuple[int, str]]:
+def _collect_ref_paragraphs_from_start(doc: Document, start_idx: int) -> List[Tuple[int, str]]:
     items: List[Tuple[int, str]] = []
-    for i in range(ref_idx + 1, len(doc.paragraphs)):
+    for i in range(start_idx, len(doc.paragraphs)):
         para = doc.paragraphs[i]
         t = full_text(para).strip()
         if not t:
@@ -468,6 +503,74 @@ def _collect_ref_paragraphs(doc: Document, ref_idx: int) -> List[Tuple[int, str]
 
         items.append((i, t))
     return items
+
+
+def _collect_ref_paragraphs(doc: Document, ref_idx: int) -> List[Tuple[int, str]]:
+    return _collect_ref_paragraphs_from_start(doc, ref_idx + 1)
+
+
+def auto_detect_reference_start(doc: Document) -> int:
+    candidates: List[Tuple[int, int, int]] = []
+    total_paras = len(doc.paragraphs)
+    if total_paras == 0:
+        return -1
+
+    for i, para in enumerate(doc.paragraphs):
+        text = full_text(para).strip()
+        if _reference_entry_score(text) < 3:
+            continue
+
+        block = _collect_ref_paragraphs_from_start(doc, i)
+        if not block:
+            continue
+
+        scores = [_reference_entry_score(item_text) for _, item_text in block]
+        strong = sum(1 for score in scores if score >= 4)
+        if len(block) >= 2 and strong >= 2:
+            candidates.append((len(block), sum(scores), i))
+            continue
+
+        if (
+            len(block) == 1
+            and scores[0] >= 5
+            and i >= max(0, total_paras - 4)
+        ):
+            candidates.append((len(block), sum(scores), i))
+
+    if not candidates:
+        return -1
+
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return candidates[0][2]
+
+
+def _insert_plain_paragraph_before(doc: Document, idx: int, text: str) -> None:
+    if not (0 <= idx < len(doc.paragraphs)):
+        doc.add_paragraph(text)
+        return
+
+    anchor = doc.paragraphs[idx]._element
+    new_p = OxmlElement("w:p")
+    run_el = OxmlElement("w:r")
+    t_el = OxmlElement("w:t")
+    t_el.text = text
+    t_el.set(qn("xml:space"), "preserve")
+    run_el.append(t_el)
+    new_p.append(run_el)
+    anchor.addprevious(new_p)
+
+
+def ensure_reference_header(doc: Document, occurrence: int = 1) -> int:
+    ref_idx = _find_ref_header(doc, occurrence=occurrence)
+    if ref_idx != -1:
+        return ref_idx
+
+    auto_start = auto_detect_reference_start(doc)
+    if auto_start == -1:
+        return -1
+
+    _insert_plain_paragraph_before(doc, auto_start, "References")
+    return auto_start
 
 
 def _remove_paragraphs_by_indices(doc: Document, indices: Sequence[int]) -> None:
@@ -1827,9 +1930,11 @@ def convert_author_date_to_vancouver(
     *,
     ref_header_n: int = 1,
 ) -> Dict[str, int]:
-    ref_idx = _find_ref_header(doc, occurrence=ref_header_n)
+    ref_idx = ensure_reference_header(doc, occurrence=ref_header_n)
     if ref_idx == -1:
-        raise RuntimeError("Could not find reference header ('Reference List' or 'References').")
+        raise RuntimeError(
+            "Could not find reference header or infer a reference list automatically."
+        )
     _set_references_header(doc, ref_idx)
     ref_paras = _collect_ref_paragraphs(doc, ref_idx)
     if not ref_paras:
@@ -1913,9 +2018,11 @@ def convert_vancouver_to_author_date(
     *,
     ref_header_n: int = 1,
 ) -> Dict[str, int]:
-    ref_idx = _find_ref_header(doc, occurrence=ref_header_n)
+    ref_idx = ensure_reference_header(doc, occurrence=ref_header_n)
     if ref_idx == -1:
-        raise RuntimeError("Could not find reference header ('Reference List' or 'References').")
+        raise RuntimeError(
+            "Could not find reference header or infer a reference list automatically."
+        )
     _set_references_header(doc, ref_idx)
     ref_paras = _collect_ref_paragraphs(doc, ref_idx)
     if not ref_paras:
@@ -2045,9 +2152,11 @@ def convert_author_date_to_author_date(
     *,
     ref_header_n: int = 1,
 ) -> Dict[str, int]:
-    ref_idx = _find_ref_header(doc, occurrence=ref_header_n)
+    ref_idx = ensure_reference_header(doc, occurrence=ref_header_n)
     if ref_idx == -1:
-        raise RuntimeError("Could not find reference header ('Reference List' or 'References').")
+        raise RuntimeError(
+            "Could not find reference header or infer a reference list automatically."
+        )
     _set_references_header(doc, ref_idx)
     ref_paras = _collect_ref_paragraphs(doc, ref_idx)
     if not ref_paras:

@@ -4,109 +4,168 @@
 
 # ScholarRef
 
-**Format. Convert. Publish.**
-
-<img src="https://img.shields.io/badge/Language-Python-blue.svg" alt="Language"> <img src="https://img.shields.io/badge/License-All_Rights_Reserved-red.svg" alt="License">
+Format. Convert. Publish.
 
 </div>
 
-ScholarRef converts citation styles inside existing Word `.docx` manuscripts and verifies the output for structural and reference integrity.
+ScholarRef is a Windows-first `.exe` app for converting citation styles inside existing Word `.docx` manuscripts and verifying the output for structural and reference integrity.
 
-## ✨ Supported Conversions
+![ScholarRef GUI](docs/assets/gui-window.png)
 
-* **APA 7** 🔄 **Vancouver**
-* **Harvard** 🔄 **Vancouver**
-* **APA 7** 🔄 **Harvard**
+## Windows app
 
----
+Primary distribution:
 
-## 🚀 Core Functionality
+- `ScholarRef-setup-<version>.exe`: standard Windows installer
+- `ScholarRef.exe`: packaged desktop app inside `ScholarRef-windows-x64.zip`
+- `SHA256SUMS.txt`: release checksums
 
-🔹 **Bidirectional Translation:** Rewrites in-text citations and reference lists across the supported style pairs.
-🔹 **Hybrid "Zombie" Normalization:** Can ingest corrupted, mismatched, and hybrid reference lists (e.g., a bibliography mixing Vancouver numbers, APA dates, and loose URLs) and normalize them into a perfectly coherent target style.
-🔹 **Smart Numbering:** Preserves and reuses numbering for repeated sources automatically when converting to Vancouver mode.
-🔹 **Aggressive Verification:** Runs strict verification passes to catch citation/reference mismatches, ordering errors, and style remnants.
-🔹 **Modern App Interface:** Provides an optional desktop GUI for smooth, non-terminal use.
+Target compatibility:
 
----
+- Windows 11 x64
+- Windows 10 x64
 
-## 💻 Installation
+Expected runtime:
 
-**Requirements:**
+- normal non-admin user install
+- `.docx` input/output workflow
+- logs under `%LOCALAPPDATA%\ScholarRef\logs\scholarref.log`
+
+Current release model:
+
+- unsigned freeware build
+- download from GitHub Releases only
+- verify `SHA256SUMS.txt` before sharing or mirroring
+- Windows SmartScreen may show `Unknown publisher`
+
+See [docs/windows-trust-and-signing.md](docs/windows-trust-and-signing.md).
+
+## Supported conversions
+
+- APA 7 <-> Vancouver
+- Harvard <-> Vancouver
+- APA 7 <-> Harvard
+
+## Core functionality
+
+- Rewrites in-text citations and reference lists across supported style pairs.
+- Normalizes corrupted and hybrid reference lists before rebuilding them into a coherent target style.
+- Detects all-caps reference headers and can infer an untitled reference list automatically.
+- Preserves and reuses numbering for repeated sources in Vancouver mode.
+- Runs strict verification passes to catch citation/reference mismatches and style remnants.
+- Provides a desktop GUI for non-terminal use.
+
+## Install options
+
+### Recommended for normal users
+
+Download the latest Windows release artifact from GitHub Releases:
+
+- `ScholarRef-setup-<version>.exe`
+- `SHA256SUMS.txt`
+
+If Windows warns that the publisher is unknown, that is expected for the current unsigned release model. The trust check is:
+
+1. download only from GitHub Releases
+2. verify the SHA-256 hash
+3. compare it with `SHA256SUMS.txt`
+
+### Portable Windows build
+
+Download and unzip:
+
+- `ScholarRef-windows-x64.zip`
+
+Then run:
+
+- `ScholarRef.exe`
+
+### Python install
+
+Requirements:
+
 - Python 3.9 or higher
 
-Install directly from the repository root using pip:
+Install from the repository root:
 
 ```bash
 pip install .
 ```
 
----
+## Quick start
 
-## ⚡ Quick Start
+### GUI
 
-### Using the GUI
-The easiest way to perform a conversion is via the Modern Desktop Interface. Once installed, simply run:
+Run the installed app or packaged `ScholarRef.exe`.
 
-```bash
-scholarref-gui
-```
+Packaged Windows builds write logs to `%LOCALAPPDATA%\ScholarRef\logs\scholarref.log`, and the GUI includes `Copy Debug Info` for bug reports.
 
-### Using the CLI
-Run the conversion tool directly from your terminal:
+### CLI
+
+Run:
 
 ```bash
 python scholarref.py --mode apa7-to-vancouver --input "input.docx" --output "output.docx"
 ```
 
-<details>
-<summary><b>View all Supported `--mode` flags</b></summary>
+Supported `--mode` values:
 
-- `apa7-to-vancouver` *(alias: `a2v`)*
-- `harvard-to-vancouver` *(alias: `h2v`)*
-- `vancouver-to-apa7` *(alias: `v2a`)*
-- `vancouver-to-harvard` *(alias: `v2h`)*
-- `apa7-to-harvard` *(alias: `a2h`)*
-- `harvard-to-apa7` *(alias: `h2a`)*
-</details>
+- `apa7-to-vancouver` (`a2v`)
+- `harvard-to-vancouver` (`h2v`)
+- `vancouver-to-apa7` (`v2a`)
+- `vancouver-to-harvard` (`v2h`)
+- `apa7-to-harvard` (`a2h`)
+- `harvard-to-apa7` (`h2a`)
 
----
+## Verification engine
 
-## 🛡️ Verification Engine
-
-You can manually verify converted output against a source document to ensure strict matching:
+Validate converted output against a source document:
 
 ```bash
 python verify_reference_integrity.py --source "source.docx" --output "output.docx" --profile full
 ```
 
-### Supported Profiles:
-- **`full`:** Manuscript-wide checks (headers, ordering, citations, declaration remnants, figure/caption flow checks, reference integrity).
-- **`references-only`:** Strict reference-style integrity checks tailored explicitly for conversion outputs.
+Profiles:
 
----
+- `full`: manuscript-wide checks
+- `references-only`: strict reference integrity checks for conversion outputs
 
-## ⚠️ Safety Preflight Checks
+## Safety preflight checks
 
-Before rewriting any file, `scholarref.py` enforces several automated checks to avoid silent errors:
+Before rewriting any file, ScholarRef checks for:
 
-- **Multiple References Headers:** Detects if a document has multiple bibliographies; allows you to explicitly target one via `--ref-header-n`.
-- **Field Codes:** Halts automatically if reference-manager field codes (like Zotero, EndNote, or Mendeley) are detected, preventing file corruption.
-- **Unsupported Regions:** Detects citation-like content trapped inside text boxes, footnotes, or endnotes.
-- **Ambiguity Detection:** Explicitly flags identical author/year citations that require `a/b` disambiguation.
+- explicit or inferred reference-list boundaries
+- reference manager field codes
+- unsupported regions such as text boxes, footnotes, or endnotes
+- ambiguous author/year cases that need disambiguation
 
----
+## Local packaging
 
-## 📂 Repository Conventions
+Build the app bundle and portable zip:
 
-- `.docx`, `.doc`, and `.pdf` files are ignored automatically via `.gitignore`.
-- Citation metadata for this software can be found in `CITATION.cff`.
-- Contribution and security policies are located in `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
+```
 
----
+Build the installer, checksums, and release manifest:
 
-## ⚖️ License
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_windows_installer.ps1
+```
 
-**All Rights Reserved.** See `LICENSE` for details.
+Smoke test the installer silently:
 
-*This repository is explicitly closed-source and not licensed for unauthorized modification, derivative work, or redistribution without written permission from the author.*
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test_windows_installer.ps1
+```
+
+## Windows release process
+
+- Release checklist: [docs/windows-release-checklist.md](docs/windows-release-checklist.md)
+- Trust and signing: [docs/windows-trust-and-signing.md](docs/windows-trust-and-signing.md)
+
+## License
+
+All Rights Reserved. See `LICENSE` for details.
+
+This repository is closed-source and not licensed for unauthorized modification, derivative work, or redistribution without written permission from the author.

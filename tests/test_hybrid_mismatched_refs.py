@@ -101,7 +101,7 @@ def _build_doc(path: Path, body_lines: list[str], refs: list[str]) -> None:
 def _reference_lines(doc: Document) -> list[str]:
     idx = -1
     for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in {"References", "Reference List"}:
+        if scholarref.is_reference_header_text(p.text):
             idx = i
             break
     if idx < 0:

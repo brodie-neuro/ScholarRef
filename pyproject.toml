@@ -15,9 +15,24 @@ dependencies = [
     "python-docx>=0.8.11",
     "customtkinter>=5.2.2",
     "Pillow>=10.0.0",
-    "CTkToolTip",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.10.0",
+    "pytest>=8.0.0",
 ]
 
 [project.scripts]
 scholarref-gui = "scholarref_gui:main"
 scholarref-plosone = "convert_to_plosone:main"
+
+[tool.setuptools]
+py-modules = [
+    "convert_to_plosone",
+    "reference_converter",
+    "scholarref",
+    "scholarref_gui",
+    "scholarref_runtime",
+    "verify_reference_integrity",
+]

@@ -44,9 +44,41 @@ body:
       label: Version
       placeholder: "e.g., v1.0.0"
 
+  - type: dropdown
+    id: windows_warning
+    attributes:
+      label: Windows Warning
+      description: Did Windows or antivirus block the file before ScholarRef opened?
+      options:
+        - No Windows or antivirus warning
+        - SmartScreen unknown publisher warning
+        - Antivirus blocked or quarantined the file
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug_info
+    attributes:
+      label: Debug Info
+      description: Paste the text from the app's "Copy Debug Info" button if available.
+      placeholder: |
+        App: ScholarRef
+        Version: v1.0.0
+        Platform: Windows-...
+        Executable: ...
+        Log file: ...
+
   - type: textarea
     id: env
     attributes:
       label: Environment
       description: OS, Python version, and relevant package versions.
       placeholder: "Windows 11, Python 3.12, python-docx ..."
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log Snippet
+      description: Paste the relevant lines from %LOCALAPPDATA%\ScholarRef\logs\scholarref.log if the app launched far enough to create a log.
+      placeholder: "Paste the error lines around the failure here, or state that no log file was created."

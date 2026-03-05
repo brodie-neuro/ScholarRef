@@ -11,9 +11,10 @@ Describe what this PR changes and why.
 
 ## Validation
 
-- [ ] `python -m py_compile scholarref.py reference_converter.py verify_reference_integrity.py scholarref_gui.py`
+- [ ] `python -m py_compile scholarref.py reference_converter.py verify_reference_integrity.py scholarref_gui.py scholarref_runtime.py`
 - [ ] Converter smoke test run
 - [ ] Relevant verifier check run
+- [ ] If Windows packaging changed, `python -m pytest -q` and installer smoke test were run
 
 ## Notes
 

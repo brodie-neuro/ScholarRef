@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
+import argparse
+import logging
 import threading
 import traceback
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 
 from docx import Document
 
 import scholarref
+import scholarref_runtime
 import verify_reference_integrity
 
 
@@ -119,8 +122,15 @@ def run_conversion_job(
 
 
 import customtkinter as ctk
-from PIL import Image
-from CTkToolTip import CTkToolTip
+try:
+    from CTkToolTip import CTkToolTip
+except ImportError:  # pragma: no cover
+    class CTkToolTip:  # type: ignore[override]
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+
+LOG = logging.getLogger(__name__)
 
 class ScholarRefApp(ctk.CTk):
     def __init__(self) -> None:
@@ -136,14 +146,15 @@ class ScholarRefApp(ctk.CTk):
         ctk.set_default_color_theme("green") # we override with teal anyway
         
         try:
-            logo_path = Path(__file__).parent / "logo" / "logo.png"
+            logo_path = scholarref_runtime.resource_path("logo", "logo-removebg-preview (1).png")
             if tk.TkVersion >= 8.6:
                 img = tk.PhotoImage(file=str(logo_path))
                 self.iconphoto(False, img)
+                self._icon_image = img
             else:
                 self.iconbitmap(str(logo_path))
         except Exception:
-            pass
+            LOG.exception("Could not set application icon")
 
         self._init_state()
         self._build_ui()
@@ -159,7 +170,7 @@ class ScholarRefApp(ctk.CTk):
         self.ref_header_n_var = ctk.StringVar(value="1")
         self.allow_field_codes_var = ctk.BooleanVar(value=False)
         self.allow_unsupported_parts_var = ctk.BooleanVar(value=False)
-        self.status_var = ctk.StringVar(value="Ready.")
+        self.status_var = ctk.StringVar(value=f"Ready. v{scholarref_runtime.APP_VERSION}")
         self._busy = False
 
     def _build_ui(self) -> None:
@@ -178,6 +189,7 @@ class ScholarRefApp(ctk.CTk):
         title_box.pack(side="left")
         ctk.CTkLabel(title_box, text="ScholarRef", text_color="#ffffff", font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold")).pack(anchor="w")
         ctk.CTkLabel(title_box, text="Format. Convert. Publish.", text_color="#0ea5a4", font=ctk.CTkFont(family="Segoe UI", size=14)).pack(anchor="w", pady=(0, 0))
+        ctk.CTkLabel(title_box, text=f"v{scholarref_runtime.APP_VERSION}", text_color="#94a3b8", font=ctk.CTkFont(family="Segoe UI", size=12)).pack(anchor="w")
 
         # ── Main Content Area ──
         root_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -302,9 +314,13 @@ class ScholarRefApp(ctk.CTk):
         sug_btn = ctk.CTkButton(button_row, text="Suggest Output Name", width=160, height=40, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(weight="bold"), command=self._suggest_output)
         sug_btn.grid(row=0, column=1, sticky="e", padx=(0, 15))
         CTkToolTip(sug_btn, message="Automatically generate an output filename based on your input (e.g., Input_vancouver.docx).")
+
+        debug_btn = ctk.CTkButton(button_row, text="Copy Debug Info", width=160, height=40, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(weight="bold"), command=self._copy_debug_info)
+        debug_btn.grid(row=0, column=2, sticky="e", padx=(0, 15))
+        CTkToolTip(debug_btn, message="Copy version, platform, executable, and log-path information for bug reports.")
         
         self.convert_btn = ctk.CTkButton(button_row, text="Run Conversion", width=160, height=40, fg_color="#0ea5a4", hover_color="#0b8f8e", font=ctk.CTkFont(weight="bold"), command=self._start_conversion)
-        self.convert_btn.grid(row=0, column=2, sticky="e")
+        self.convert_btn.grid(row=0, column=3, sticky="e")
         CTkToolTip(self.convert_btn, message="Start the sub-second rewrite of your manuscript based on your chosen settings!")
 
         # ── Log Area ──
@@ -425,6 +441,13 @@ class ScholarRefApp(ctk.CTk):
             return
         self.status_var.set(msg)
 
+    def _copy_debug_info(self) -> None:
+        debug_text = scholarref_runtime.debug_info()
+        self.clipboard_clear()
+        self.clipboard_append(debug_text)
+        self._log("Copied debug info to clipboard.")
+        self._set_status("Debug info copied.")
+
     def _start_conversion(self) -> None:
         if self._busy:
             return
@@ -473,9 +496,10 @@ class ScholarRefApp(ctk.CTk):
                 logger=self._log,
             )
 
-            self._set_status("Complete.")
+            self._set_status(f"Complete. v{scholarref_runtime.APP_VERSION}")
             self.after(0, lambda: messagebox.showinfo("ScholarRef", "Conversion completed successfully."))
         except Exception as exc:  # pragma: no cover
+            LOG.exception("Conversion failed")
             self._log("ERROR: conversion failed")
             self._log(str(exc))
             self._log(traceback.format_exc())
@@ -485,8 +509,26 @@ class ScholarRefApp(ctk.CTk):
             self.after(0, self._set_busy, False)
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="ScholarRef desktop GUI")
+    parser.add_argument("--smoke-test", action="store_true", help="Initialize runtime dependencies and exit.")
+    parser.add_argument("--debug-info", action="store_true", help="Print runtime debug information and exit.")
+    args = parser.parse_args(argv)
+
+    log_path = scholarref_runtime.configure_logging()
+    LOG.info("Starting GUI")
+    if args.debug_info or args.smoke_test:
+        print(scholarref_runtime.debug_info())
+        print(f"Log file: {log_path}")
+    if args.smoke_test:
+        icon_path = scholarref_runtime.resource_path("logo", "logo.png")
+        if not icon_path.exists():
+            raise FileNotFoundError(f"Missing bundled icon asset: {icon_path}")
+        return 0
+
     app = ScholarRefApp()
+    app._log(scholarref_runtime.debug_info())
+    app._log(f"Log file: {log_path}")
     app.mainloop()
     return 0
 

@@ -26,7 +26,7 @@ def _paragraph_texts(doc: Document) -> list[str]:
 def _reference_lines_until_break(doc: Document) -> list[str]:
     idx = -1
     for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in {"References", "Reference List"}:
+        if scholarref.is_reference_header_text(p.text):
             idx = i
             break
     if idx < 0:
@@ -89,3 +89,48 @@ def test_exact_duplicate_author_date_references_are_collapsed(tmp_path: Path) ->
     assert stats["reference_count"] == 1
     assert texts[0] == "Body cites [1]."
     assert texts[2:] == ["1. Smith A. Same paper. Journal of Testing. 2020;1(1):1-2."]
+
+
+def test_all_caps_reference_header_is_detected(tmp_path: Path) -> None:
+    src = tmp_path / "all_caps_refs.docx"
+    _build_doc(
+        [
+            "Body cites (Smith, 2020).",
+            "REFERENCES",
+            "Smith, A. (2020). Test title. Journal of Testing, 1(1), 1-2.",
+        ],
+        src,
+    )
+
+    doc = Document(str(src))
+    stats = scholarref.convert_author_date_to_vancouver(doc, keep_uncited=True)
+    texts = _paragraph_texts(doc)
+
+    assert stats["reference_count"] == 1
+    assert texts[1] == "References"
+    assert texts[2] == "1. Smith A. Test title. Journal of Testing. 2020;1(1):1-2."
+
+
+def test_reference_list_is_auto_detected_without_header(tmp_path: Path) -> None:
+    src = tmp_path / "untitled_refs.docx"
+    _build_doc(
+        [
+            "Body cites (Smith, 2020) and (Jones, 2021).",
+            "Some concluding discussion remains here.",
+            "Smith, A. (2020). Test title. Journal of Testing, 1(1), 1-2.",
+            "Jones, B. (2021). Another title. Journal of Trials, 2(3), 10-20.",
+        ],
+        src,
+    )
+
+    doc = Document(str(src))
+    preflight = scholarref.preflight_docx(doc)
+    stats = scholarref.convert_author_date_to_vancouver(doc, keep_uncited=True)
+    texts = _paragraph_texts(doc)
+
+    assert not preflight["failures"]
+    assert preflight["auto_ref_start"] == 2
+    assert stats["reference_count"] == 2
+    assert texts[2] == "References"
+    assert texts[3] == "1. Smith A. Test title. Journal of Testing. 2020;1(1):1-2."
+    assert texts[4] == "2. Jones B. Another title. Journal of Trials. 2021;2(3):10-20."

@@ -26,7 +26,7 @@ def _assert(cond: bool, msg: str) -> None:
 def _body_text_before_refs(doc: Document) -> str:
     idx = -1
     for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in {"References", "Reference List"}:
+        if scholarref.is_reference_header_text(p.text):
             idx = i
             break
     paras = scholarref.collect_body_paragraphs_before_reference(doc, idx if idx >= 0 else None)
@@ -36,7 +36,7 @@ def _body_text_before_refs(doc: Document) -> str:
 def _reference_lines(doc: Document) -> list[str]:
     idx = -1
     for i, p in enumerate(doc.paragraphs):
-        if p.text.strip() in {"References", "Reference List"}:
+        if scholarref.is_reference_header_text(p.text):
             idx = i
             break
     if idx < 0:
