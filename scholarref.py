@@ -232,6 +232,40 @@ def assign_year_suffixes(refs: Sequence[dict]) -> None:
     _assign_year_suffixes(refs)
 
 
+def _reference_identity_signature(ref: dict) -> Tuple[object, ...]:
+    authors = tuple(
+        (_norm_text(sn), _norm_text(ini))
+        for sn, ini in (ref.get("authors", []) or [])
+    )
+    return (
+        authors,
+        _norm_text(ref.get("year", "") or ""),
+        _norm_text(ref.get("ysuf", "") or ""),
+        _norm_text(ref.get("title", "") or ref.get("title_part", "") or ""),
+        _norm_text(ref.get("journal", "") or ""),
+        _norm_text(ref.get("vol", "") or ""),
+        _norm_text(ref.get("issue", "") or ""),
+        _norm_text(ref.get("pages", "") or ""),
+        _norm_text(ref.get("doi", "") or ""),
+        bool(ref.get("is_book")),
+        _norm_text(ref.get("raw", "") or ""),
+    )
+
+
+def _collapse_exact_duplicate_references(refs: Sequence[dict]) -> Tuple[List[dict], int]:
+    seen: Dict[Tuple[object, ...], dict] = {}
+    out: List[dict] = []
+    duplicates = 0
+    for ref in refs:
+        sig = _reference_identity_signature(ref)
+        if sig in seen:
+            duplicates += 1
+            continue
+        seen[sig] = ref
+        out.append(ref)
+    return out, duplicates
+
+
 def _iter_package_xml_parts(doc: Document):
     for part in doc.part.package.parts:
         name = str(getattr(part, "partname", ""))
@@ -337,12 +371,102 @@ def _set_references_header(doc: Document, ref_idx: int) -> None:
         replace_in_runs(p, [(start, start + len("Reference List"), "References")])
 
 
+def _para_style_name(para) -> str:
+    try:
+        return (getattr(getattr(para, "style", None), "name", "") or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def _looks_like_reference_entry(text: str) -> bool:
+    s = _norm_space(text)
+    if not s:
+        return False
+    if re.match(r"^\[?\d+\]?[\.\)]\s+", s):
+        return True
+    if re.search(r"\((?:19|20)\d{2}[a-z]?(?:,\s*[^)]*)?\)", s):
+        return True
+    if re.search(r"(?<!\d)(?:19|20)\d{2}[a-z]?\s*;\s*\d+", s):
+        return True
+    if re.search(r"https?://|doi:", s, flags=re.I):
+        return True
+    if re.search(r"\bet al\.?\b", s, flags=re.I):
+        return True
+    if re.match(r"^[A-Z][A-Za-z'`\-]+,\s*[A-Z]", s):
+        return True
+    if re.match(r"^[A-Z][A-Za-z'`\-]+(?:\s+[A-Z][A-Za-z'`\-]+)?\s+[A-Z]{1,4}[.,]", s):
+        return True
+    if re.search(r"\bpp?\.\s*\d", s, flags=re.I):
+        return True
+    if re.search(r"\d+\([^)]*\)\s*[:,]\s*\d", s):
+        return True
+    return False
+
+
+def _looks_like_reference_section_break(para) -> bool:
+    text = _norm_space(full_text(para))
+    if not text:
+        return False
+
+    style_name = _para_style_name(para)
+    if any(token in style_name for token in ("heading", "title", "subtitle")):
+        return True
+
+    if re.match(
+        r"^(?:appendix|appendices|supplement(?:ary|al)?(?: materials?)?|supporting information|"
+        r"online resources?|figure legends?|acknowledg?ments?|funding|declarations?|"
+        r"author contributions?|conflicts? of interest|ethics(?: statement)?|"
+        r"data availability|supplementary checklist|checklist)\b",
+        text,
+        flags=re.I,
+    ):
+        return True
+
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'&/\-]*", text)
+    if (
+        words
+        and len(words) <= 8
+        and len(text) <= 80
+        and not re.search(r"[.:;!?]|\((?:19|20)\d{2}|https?://|doi:", text, flags=re.I)
+    ):
+        capitalized = sum(1 for w in words if w[:1].isupper())
+        if capitalized >= max(1, len(words) - 1):
+            return True
+    return False
+
+
+def _next_nonempty_paragraph(doc: Document, start_idx: int):
+    for i in range(start_idx + 1, len(doc.paragraphs)):
+        para = doc.paragraphs[i]
+        if full_text(para).strip():
+            return para
+    return None
+
+
 def _collect_ref_paragraphs(doc: Document, ref_idx: int) -> List[Tuple[int, str]]:
     items: List[Tuple[int, str]] = []
     for i in range(ref_idx + 1, len(doc.paragraphs)):
-        t = doc.paragraphs[i].text.strip()
-        if t:
-            items.append((i, t))
+        para = doc.paragraphs[i]
+        t = full_text(para).strip()
+        if not t:
+            continue
+
+        if items and _looks_like_reference_section_break(para):
+            break
+
+        if not _looks_like_reference_entry(t):
+            next_para = _next_nonempty_paragraph(doc, i)
+            next_text = full_text(next_para).strip() if next_para is not None else ""
+            if items and (
+                next_para is None
+                or _looks_like_reference_section_break(next_para)
+                or not _looks_like_reference_entry(next_text)
+            ):
+                break
+            if not items:
+                continue
+
+        items.append((i, t))
     return items
 
 
@@ -707,6 +831,459 @@ def parse_author_date_reference(text: str) -> dict:
 def parse_apa_reference(text: str) -> dict:
     # Backward-compatible alias used by verifier and existing scripts.
     return parse_author_date_reference(text)
+
+
+def _strip_reference_lead_marker(text: str) -> Tuple[Optional[int], str]:
+    s = _norm_space(text)
+    m = re.match(r"^\s*[\[(]?\s*(\d{1,4})\s*[\])\.]?\s*(.*)$", s)
+    if not m:
+        return None, s
+    num_txt = m.group(1)
+    if not num_txt:
+        return None, s
+    try:
+        num = int(num_txt)
+    except ValueError:
+        return None, s
+    if num > 500:
+        return None, s
+    return num, (m.group(2) or "").strip()
+
+
+def _authors_look_plausible(authors: Sequence[Tuple[str, str]]) -> bool:
+    if not authors:
+        return False
+    lead = (authors[0][0] or "").strip()
+    if not lead:
+        return False
+    if re.search(r"\bunknown\b", lead, flags=re.I):
+        return False
+    if re.search(r"[\[\]{}]", lead):
+        return False
+    if _norm_text(lead) in {"one", "two", "three", "four", "five"}:
+        return False
+    tokens = re.findall(r"[A-Za-z][A-Za-z'\-]*", lead)
+    if not tokens:
+        return False
+    if len(tokens) > 4 and not re.search(r"\bet al\b", lead, flags=re.I):
+        return False
+    return True
+
+
+def _title_looks_plausible(title: str) -> bool:
+    t = _norm_space(title)
+    if not t:
+        return False
+    if re.fullmatch(r"\d+(?:\([^)]+\))?(?::\d+(?:-\d+)?)?", t):
+        return False
+    if len(re.findall(r"[A-Za-z]", t)) < 4:
+        return False
+    return True
+
+
+def _split_compact_title_journal(text: str) -> Optional[dict]:
+    s = _norm_space(text).strip(" .;,")
+    if not s:
+        return None
+    patterns = [
+        re.compile(
+            r"^(?P<title>.+?)\s+(?P<journal>[A-Z][A-Za-z0-9&,\- ]+?)\s+"
+            r"(?P<year>(?:19|20)\d{2}[a-z]?)\s*;\s*(?P<vol>\d+)\((?P<issue>[^)]+)\)\s*:\s*(?P<pages>[0-9\-–]+)$"
+        ),
+        re.compile(
+            r"^(?P<title>.+?)\s+(?P<journal>[A-Z][A-Za-z0-9&,\- ]+?)\s+"
+            r"(?P<vol>\d+)\((?P<issue>[^)]+)\)\s*(?P<pages>[0-9\-–]+)$"
+        ),
+        re.compile(
+            r"^(?P<title>.+?)\s+(?P<journal>[A-Z][A-Za-z0-9&,\- ]+?)\s+(?P<year>(?:19|20)\d{2}[a-z]?)$"
+        ),
+    ]
+    for pat in patterns:
+        m = pat.match(s)
+        if m:
+            return {
+                "title": _norm_space(m.group("title")),
+                "journal": _norm_space(m.group("journal")),
+                "year": (m.groupdict().get("year") or "").strip(),
+                "vol": (m.groupdict().get("vol") or "").strip(),
+                "issue": (m.groupdict().get("issue") or "").strip(),
+                "pages": (m.groupdict().get("pages") or "").strip(),
+            }
+    return None
+
+
+def _clean_journal_field(journal: str) -> str:
+    j = _norm_space(journal).strip(" ,.;")
+    if not j:
+        return ""
+    j = re.sub(
+        r"\s*(?:19|20)\d{2}[a-z]?\s*;\s*\d+\([^)]*\)\s*:\s*[0-9\-–]+$",
+        "",
+        j,
+    ).strip(" ,.;")
+    j = re.sub(
+        r"\s*\d+\([^)]*\)\s*[: ]\s*[0-9\-–]+$",
+        "",
+        j,
+    ).strip(" ,.;")
+    return j
+
+
+def _reference_core_score(ref: Optional[dict], *, require_num: bool = False) -> int:
+    if not ref:
+        return -1
+    score = 0
+    if _authors_look_plausible(ref.get("authors", [])):
+        score += 3
+    year = str(ref.get("year", "") or "").strip()
+    if re.fullmatch(r"(?:19|20)\d{2}[a-z]?", year):
+        score += 2
+    elif year == "n.d.":
+        score += 1
+    title = (ref.get("title", "") or ref.get("title_part", "")).strip()
+    if _title_looks_plausible(title):
+        score += 2
+    elif title:
+        score -= 2
+    journal = (ref.get("journal", "") or "").strip()
+    if journal:
+        score += 2
+    elif ref.get("is_book"):
+        score += 1
+    if (ref.get("vol") or ref.get("pages")):
+        score += 1
+    if require_num and isinstance(ref.get("num"), int):
+        score += 1
+    return score
+
+
+def _needs_hybrid_fallback(ref: Optional[dict], *, require_num: bool = False) -> bool:
+    if not ref:
+        return True
+    if require_num and not isinstance(ref.get("num"), int):
+        return True
+    if not _authors_look_plausible(ref.get("authors", [])):
+        return True
+    title = (ref.get("title", "") or ref.get("title_part", "")).strip()
+    if not _title_looks_plausible(title):
+        return True
+    year = str(ref.get("year", "") or "").strip()
+    if year and not re.fullmatch(r"(?:19|20)\d{2}[a-z]?|n\.d\.", year):
+        return True
+    if not (ref.get("journal") or ref.get("is_book")):
+        return True
+    min_score = 7 if require_num else 6
+    return _reference_core_score(ref, require_num=require_num) < min_score
+
+
+def _fallback_hybrid_core(
+    text: str,
+    *,
+    fallback_num: Optional[int] = None,
+) -> dict:
+    raw = _norm_space((text or "").replace("\u00A0", " "))
+    detected_num, lead_stripped = _strip_reference_lead_marker(raw)
+    num = detected_num if detected_num is not None else fallback_num
+
+    doi = _extract_doi(raw)
+    work = lead_stripped
+    work = re.sub(r"https?://(?:dx\.)?doi\.org/[^\s]+", "", work, flags=re.I)
+    work = re.sub(r"\bdoi:\s*[^\s]+", "", work, flags=re.I)
+    work = re.sub(r"https?://[^\s]+", "", work, flags=re.I)
+    work = _norm_space(work).strip(" .;,")
+    if not doi:
+        doi = _extract_doi(work)
+
+    # Candidate 1: existing author-date parser.
+    p_ad = parse_author_date_reference(work)
+    cand_ad = {
+        "raw": raw,
+        "num": num,
+        "authors": p_ad.get("authors", []),
+        "year": p_ad.get("year", "") or "",
+        "ysuf": p_ad.get("ysuf", "") or "",
+        "title": p_ad.get("title", "") or "",
+        "journal": p_ad.get("journal", "") or "",
+        "vol": p_ad.get("vol", "") or "",
+        "issue": p_ad.get("issue", "") or "",
+        "pages": p_ad.get("pages", "") or "",
+        "is_book": bool(p_ad.get("is_book")),
+        "doi": p_ad.get("doi", "") or doi,
+    }
+
+    # Candidate 2: Vancouver parser after coercing a numeric lead.
+    cand_van = None
+    looks_vancouver_like = bool(re.search(r"(?:19|20)\d{2}[a-z]?\s*;\s*\d+", work))
+    if looks_vancouver_like:
+        parse_num = num if isinstance(num, int) and num > 0 else 1
+        p_van = parse_vancouver_reference_line(f"{parse_num}. {work}", target_style="apa7")
+        if p_van:
+            cand_van = {
+                "raw": raw,
+                "num": num,
+                "authors": p_van.get("authors", []),
+                "year": p_van.get("year", "") or "",
+                "ysuf": "",
+                "title": p_van.get("title_part", "") or "",
+                "journal": p_van.get("journal", "") or "",
+                "vol": p_van.get("vol", "") or "",
+                "issue": p_van.get("issue", "") or "",
+                "pages": p_van.get("pages", "") or "",
+                "is_book": False,
+                "doi": p_van.get("doi", "") or doi,
+            }
+
+    # Candidate 3: direct heuristic extraction.
+    h_year = ""
+    h_ysuf = ""
+    h_authors: List[Tuple[str, str]] = []
+    h_title = ""
+    h_source = ""
+    compact_journal = ""
+    compact_vol = ""
+    compact_issue = ""
+    compact_pages = ""
+    before = ""
+    after = work
+
+    ym = re.search(r"\((?P<year>(?:19|20)\d{2})(?P<ysuf>[a-z]?)\)", work)
+    if ym:
+        h_year = ym.group("year")
+        h_ysuf = ym.group("ysuf") or ""
+        before = work[: ym.start()].strip().rstrip(".,;")
+        after = work[ym.end() :].strip().lstrip(").,;:- ")
+        h_authors = _parse_apa_authors(before) if before else []
+    else:
+        ym2 = re.search(r"(?<!\d)(?P<year>(?:19|20)\d{2})(?P<ysuf>[a-z]?)(?!\d)", work)
+        if ym2:
+            h_year = ym2.group("year")
+            h_ysuf = ym2.group("ysuf") or ""
+            before = work[: ym2.start()].strip().rstrip(".,;")
+            after = work[ym2.end() :].strip().lstrip(").,;:- ")
+            h_authors = _parse_apa_authors(before) if before else []
+
+    if after:
+        h_title, h_source = _split_title_and_source(after)
+
+    a_part, t_part, s_part = _split_authors_title_vancouver(work)
+    v_authors = _parse_vancouver_author_tokens(a_part)
+    if not _authors_look_plausible(h_authors) and _authors_look_plausible(v_authors):
+        h_authors = v_authors
+    if not _authors_look_plausible(h_authors):
+        m2 = re.search(
+            r"([A-Z][A-Za-z'\-]+)\s+([A-Z])\.,\s*([A-Z][A-Za-z'\-]+)\s+([A-Z])\.",
+            work,
+        )
+        if m2:
+            h_authors = [
+                (m2.group(1), f"{m2.group(2)}."),
+                (m2.group(3), f"{m2.group(4)}."),
+            ]
+        else:
+            m1 = re.search(r"([A-Z][A-Za-z'\-]+)\s+([A-Z])\.", work)
+            if m1:
+                h_authors = [(m1.group(1), f"{m1.group(2)}.")]
+
+    if (_title_looks_plausible(t_part) and not _title_looks_plausible(h_title)) or (not h_title and t_part):
+        h_title = t_part
+    if not h_source and s_part:
+        h_source = s_part
+
+    compact = _split_compact_title_journal(h_source or h_title)
+    if compact:
+        compact_journal = compact.get("journal", "")
+        compact_vol = compact.get("vol", "")
+        compact_issue = compact.get("issue", "")
+        compact_pages = _clean_pages(compact.get("pages", ""))
+        if not h_year and compact.get("year"):
+            m_y = re.match(r"((?:19|20)\d{2})([a-z]?)$", compact["year"])
+            if m_y:
+                h_year = m_y.group(1)
+                h_ysuf = m_y.group(2) or ""
+        if not _title_looks_plausible(h_title):
+            h_title = compact.get("title", h_title)
+        if not h_source or h_source == h_title:
+            h_source = compact_journal
+
+    if not _title_looks_plausible(h_title):
+        chunks = [c.strip(" .;,") for c in re.split(r"\.\s+", after or work) if c.strip()]
+        for chunk in chunks:
+            if _title_looks_plausible(chunk):
+                h_title = chunk
+                break
+        if chunks and not h_source:
+            h_source = chunks[-1]
+
+    v_source_info = _parse_vancouver_source(h_source or s_part or work)
+    if not h_year and v_source_info.get("year"):
+        yraw = v_source_info["year"]
+        m_y = re.match(r"((?:19|20)\d{2})([a-z]?)$", yraw)
+        if m_y:
+            h_year = m_y.group(1)
+            h_ysuf = m_y.group(2) or ""
+
+    journal, vol, issue, pages, is_book = _parse_source_fields(h_source)
+    if not journal and compact_journal:
+        journal = compact_journal
+    if not journal and v_source_info.get("journal"):
+        journal = v_source_info.get("journal", "")
+    if not vol and compact_vol:
+        vol = compact_vol
+    if not vol and v_source_info.get("vol"):
+        vol = v_source_info.get("vol", "")
+    if not issue and compact_issue:
+        issue = compact_issue
+    if not issue and v_source_info.get("issue"):
+        issue = v_source_info.get("issue", "")
+    if not pages and compact_pages:
+        pages = compact_pages
+    if not pages and v_source_info.get("pages"):
+        pages = _clean_pages(v_source_info.get("pages", ""))
+
+    if not journal:
+        jm = re.search(
+            r"(Journal of [A-Za-z0-9 ,&\-]+)\s+\d+\(",
+            h_title or h_source or work,
+        )
+        if jm:
+            journal = jm.group(1).strip()
+
+    cand_heur = {
+        "raw": raw,
+        "num": num,
+        "authors": h_authors,
+        "year": h_year,
+        "ysuf": h_ysuf,
+        "title": _strip_surrounding_quotes(h_title).rstrip(" ,.;'\""),
+        "journal": _clean_journal_field(journal),
+        "vol": vol.strip(),
+        "issue": issue.strip(),
+        "pages": pages.strip(),
+        "is_book": bool(is_book) or (not vol and not pages and bool(journal)),
+        "doi": doi,
+    }
+
+    candidates = [cand_ad, cand_heur]
+    if cand_van is not None:
+        candidates.append(cand_van)
+    best = max(candidates, key=_reference_core_score)
+
+    best = dict(best)
+    best["raw"] = raw
+    best["num"] = num
+    best["doi"] = best.get("doi", "") or doi
+    best["title"] = _strip_surrounding_quotes((best.get("title", "") or "")).rstrip(" ,.;'\"")
+    best["journal"] = _clean_journal_field(best.get("journal", ""))
+    if not best.get("year"):
+        best["year"] = "n.d."
+        best["ysuf"] = ""
+    return best
+
+
+def _author_phrase_from_authors(authors: Sequence[Tuple[str, str]], style: str) -> str:
+    phrase = _citation_key(authors, "2000", "").rsplit(", ", 1)[0]
+    if style == "harvard":
+        phrase = phrase.replace(" & ", " and ")
+    return phrase
+
+
+def _core_to_author_date_ref(core: dict) -> dict:
+    year = str(core.get("year", "") or "").strip() or "n.d."
+    ysuf = str(core.get("ysuf", "") or "").strip()
+    if year == "n.d.":
+        ysuf = ""
+    ref = dict(
+        raw=core.get("raw", ""),
+        authors=core.get("authors", []),
+        year=year,
+        ysuf=ysuf,
+        title=core.get("title", ""),
+        journal=core.get("journal", ""),
+        vol=core.get("vol", ""),
+        issue=core.get("issue", ""),
+        pages=core.get("pages", ""),
+        key="",
+        num=core.get("num"),
+        is_book=bool(core.get("is_book")),
+        is_nature=False,
+        doi=core.get("doi", ""),
+    )
+    ref["key"] = _citation_key(ref["authors"], ref["year"], ref["ysuf"])
+    return ref
+
+
+def _core_to_vancouver_ref(core: dict, *, target_style: str, fallback_num: int) -> dict:
+    num = core.get("num")
+    if not isinstance(num, int) or num < 1:
+        num = fallback_num
+    year = str(core.get("year", "") or "").strip() or "n.d."
+    ysuf = str(core.get("ysuf", "") or "").strip()
+    if year != "n.d." and ysuf and not year.endswith(ysuf):
+        year = f"{year}{ysuf}"
+    authors = core.get("authors", [])
+    author_phrase = _author_phrase_from_authors(authors, style=target_style)
+    return {
+        "num": num,
+        "raw": core.get("raw", ""),
+        "authors_part": _vancouver_authors(authors),
+        "authors": authors,
+        "title_part": core.get("title", ""),
+        "source_part": core.get("journal", ""),
+        "journal": core.get("journal", ""),
+        "year": year,
+        "ysuf": "",
+        "vol": core.get("vol", ""),
+        "issue": core.get("issue", ""),
+        "pages": core.get("pages", ""),
+        "doi": core.get("doi", ""),
+        "author_phrase": author_phrase,
+        "parenthetical": f"{author_phrase}, {year}",
+    }
+
+
+def _parse_author_date_reference_auto(text: str) -> Tuple[dict, bool]:
+    parsed = parse_author_date_reference(text)
+    if not _needs_hybrid_fallback(parsed):
+        return parsed, False
+    fallback = _core_to_author_date_ref(_fallback_hybrid_core(text))
+    if _reference_core_score(fallback) >= _reference_core_score(parsed):
+        return fallback, True
+    return parsed, False
+
+
+def _parse_vancouver_reference_auto(
+    text: str,
+    *,
+    target_style: str,
+    fallback_num: int,
+) -> Tuple[Optional[dict], bool]:
+    parsed = parse_vancouver_reference_line(text, target_style=target_style)
+    if parsed and not _needs_hybrid_fallback(parsed, require_num=True):
+        return parsed, False
+    fallback = _core_to_vancouver_ref(
+        _fallback_hybrid_core(text, fallback_num=fallback_num),
+        target_style=target_style,
+        fallback_num=fallback_num,
+    )
+    if parsed is None or _reference_core_score(fallback, require_num=True) >= _reference_core_score(parsed, require_num=True):
+        return fallback, True
+    return parsed, False
+
+
+def _ensure_unique_reference_numbers(refs: Sequence[dict]) -> None:
+    used: set[int] = set()
+    next_num = 1
+    for ref in refs:
+        num = ref.get("num")
+        if isinstance(num, int) and num > 0 and num not in used:
+            used.add(num)
+            next_num = max(next_num, num + 1)
+            continue
+        while next_num in used:
+            next_num += 1
+        ref["num"] = next_num
+        used.add(next_num)
+        next_num += 1
 
 
 def _vancouver_authors(authors: Sequence[Tuple[str, str]]) -> str:
@@ -1086,6 +1663,10 @@ def _parse_vancouver_source(source: str) -> dict:
     pages = ""
     journal = ""
     doi = _extract_doi(src)
+    src = re.sub(r"https?://(?:dx\.)?doi\.org/[^\s]+", "", src, flags=re.I)
+    src = re.sub(r"\bdoi:\s*[^\s]+", "", src, flags=re.I)
+    src = re.sub(r"https?://[^\s]+", "", src, flags=re.I)
+    src = _norm_space(src).rstrip(".")
 
     ym = re.search(r"(?<!\d)((?:19|20)\d{2}[a-z]?)(?!\d)", src)
     if ym:
@@ -1251,7 +1832,16 @@ def convert_author_date_to_vancouver(
         raise RuntimeError("Could not find reference header ('Reference List' or 'References').")
     _set_references_header(doc, ref_idx)
     ref_paras = _collect_ref_paragraphs(doc, ref_idx)
-    refs = [parse_author_date_reference(t) for _, t in ref_paras]
+    if not ref_paras:
+        raise RuntimeError("No references found below reference header.")
+    refs: List[dict] = []
+    hybrid_count = 0
+    for _, txt in ref_paras:
+        parsed, used_hybrid = _parse_author_date_reference_auto(txt)
+        refs.append(parsed)
+        if used_hybrid:
+            hybrid_count += 1
+    refs, duplicate_count = _collapse_exact_duplicate_references(refs)
     _assign_year_suffixes(refs)
 
     engine = ApaToVancouverEngine(refs)
@@ -1292,6 +1882,8 @@ def convert_author_date_to_vancouver(
         "narr_replacements": stats["narr"],
         "reference_count": len(lines),
         "header_footer_paragraphs": len(hf_paras),
+        "hybrid_normalized": hybrid_count,
+        "duplicate_refs_collapsed": duplicate_count,
     }
 
 
@@ -1333,8 +1925,20 @@ def convert_vancouver_to_author_date(
     if target_style not in {"apa7", "harvard"}:
         raise RuntimeError("target_style must be 'apa7' or 'harvard'.")
 
-    parsed = [parse_vancouver_reference_line(t, target_style=target_style) for _, t in ref_paras]
-    parsed = [p for p in parsed if p is not None]
+    parsed: List[dict] = []
+    hybrid_count = 0
+    for i, (_, txt) in enumerate(ref_paras, start=1):
+        p, used_hybrid = _parse_vancouver_reference_auto(
+            txt,
+            target_style=target_style,
+            fallback_num=i,
+        )
+        if p is None:
+            continue
+        parsed.append(p)
+        if used_hybrid:
+            hybrid_count += 1
+    _ensure_unique_reference_numbers(parsed)
     _assign_year_suffixes(parsed)
     for p in parsed:
         p["parenthetical"] = f"{p['author_phrase']}, {p['year']}{p.get('ysuf', '')}"
@@ -1396,6 +2000,7 @@ def convert_vancouver_to_author_date(
         "citation_replacements": repl_count,
         "reference_count": len(refs_out),
         "header_footer_paragraphs": len(hf_paras),
+        "hybrid_normalized": hybrid_count,
     }
 
 
@@ -1445,7 +2050,16 @@ def convert_author_date_to_author_date(
         raise RuntimeError("Could not find reference header ('Reference List' or 'References').")
     _set_references_header(doc, ref_idx)
     ref_paras = _collect_ref_paragraphs(doc, ref_idx)
-    refs = [parse_author_date_reference(t) for _, t in ref_paras]
+    if not ref_paras:
+        raise RuntimeError("No references found below reference header.")
+    refs: List[dict] = []
+    hybrid_count = 0
+    for _, txt in ref_paras:
+        parsed, used_hybrid = _parse_author_date_reference_auto(txt)
+        refs.append(parsed)
+        if used_hybrid:
+            hybrid_count += 1
+    refs, duplicate_count = _collapse_exact_duplicate_references(refs)
     _assign_year_suffixes(refs)
 
     body_paras = collect_body_paragraphs_before_reference(doc, ref_idx)
@@ -1489,6 +2103,8 @@ def convert_author_date_to_author_date(
         "citation_restyles": citation_restyles,
         "reference_count": len(refs_out),
         "header_footer_paragraphs": len(hf_paras),
+        "hybrid_normalized": hybrid_count,
+        "duplicate_refs_collapsed": duplicate_count,
     }
 
 

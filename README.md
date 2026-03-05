@@ -23,6 +23,7 @@ ScholarRef converts citation styles inside existing Word `.docx` manuscripts and
 ## 🚀 Core Functionality
 
 🔹 **Bidirectional Translation:** Rewrites in-text citations and reference lists across the supported style pairs.
+🔹 **Hybrid "Zombie" Normalization:** Can ingest corrupted, mismatched, and hybrid reference lists (e.g., a bibliography mixing Vancouver numbers, APA dates, and loose URLs) and normalize them into a perfectly coherent target style.
 🔹 **Smart Numbering:** Preserves and reuses numbering for repeated sources automatically when converting to Vancouver mode.
 🔹 **Aggressive Verification:** Runs strict verification passes to catch citation/reference mismatches, ordering errors, and style remnants.
 🔹 **Modern App Interface:** Provides an optional desktop GUI for smooth, non-terminal use.
