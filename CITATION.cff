@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+title: "ScholarRef"
+message: "If you use ScholarRef, please cite it using the metadata below."
+type: software
+authors:
+  - family-names: "Mangan"
+    given-names: "Brodie E."
+version: "1.0.0"
+date-released: "2026-03-05"
+license: "ANM-1.0"
+keywords:
+  - references
+  - citations
+  - APA 7
+  - Vancouver
+  - docx

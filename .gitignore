@@ -1,0 +1,61 @@
+# ── Standard Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ── Virtual Environments ──
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ── IDEs & Tools ──
+.vscode/
+.idea/
+*.swp
+*.swo
+.pyre/
+.mypy_cache/
+.pytest_cache/
+
+# ── OS Files ──
+.DS_Store
+Thumbs.db
+
+# ── Local Project Specifics ──
+*.docx
+**/*.docx
+*.DOCX
+*.doc
+*.pdf
+tests/generated/
+
+# Local one-off scripts/artifacts not intended for GitHub
+convert_to_plosone.py
+debug_refs.py
+debug_refs2.py
+debug_refs_output.txt
+debug_refs2_output.txt
+PROMPT_apa_to_plosone_converter.md

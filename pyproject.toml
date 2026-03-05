@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scholarref"
+version = "1.0.0"
+description = "A professional Python tool and modern desktop GUI for converting academic citations and document formatting (APA 7, Harvard, Vancouver) in Microsoft Word (.docx) files."
+readme = "README.md"
+authors = [
+    { name = "Brodie Mangan" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "python-docx>=0.8.11",
+    "customtkinter>=5.2.2",
+    "Pillow>=10.0.0",
+    "CTkToolTip",
+]
+
+[project.scripts]
+scholarref-gui = "scholarref_gui:main"
+scholarref-plosone = "convert_to_plosone:main"
