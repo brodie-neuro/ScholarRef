@@ -122,13 +122,13 @@ Supported `--mode` values:
 Validate converted output against a source document:
 
 ```bash
-python verify_reference_integrity.py --source "source.docx" --output "output.docx" --profile full
+python verify_reference_integrity.py --source "source.docx" --output "output.docx" --profile references-only
 ```
 
 Profiles:
 
-- `full`: manuscript-wide checks
-- `references-only`: strict reference integrity checks for conversion outputs
+- `references-only`: strict public integrity checks for ScholarRef conversion outputs
+- `full`: optional private manuscript-wide checks not included in the public GitHub package
 
 ## Safety preflight checks
 

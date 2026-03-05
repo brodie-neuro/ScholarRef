@@ -25,11 +25,9 @@ build = [
 
 [project.scripts]
 scholarref-gui = "scholarref_gui:main"
-scholarref-plosone = "convert_to_plosone:main"
 
 [tool.setuptools]
 py-modules = [
-    "convert_to_plosone",
     "reference_converter",
     "scholarref",
     "scholarref_gui",

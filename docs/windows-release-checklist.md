@@ -3,7 +3,7 @@
 ## CI gate
 
 - `python -m pytest -q` passes.
-- `python -m py_compile scholarref.py scholarref_gui.py scholarref_runtime.py convert_to_plosone.py verify_reference_integrity.py` passes.
+- `python -m py_compile scholarref.py scholarref_gui.py scholarref_runtime.py verify_reference_integrity.py` passes.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\build_windows_installer.ps1 -SkipTests` succeeds.
 - `powershell -ExecutionPolicy Bypass -File .\scripts\test_windows_installer.ps1` succeeds.
 - `dist\SHA256SUMS.txt` and `dist\release-manifest.json` are produced.

@@ -23,8 +23,12 @@ from typing import Dict, List, Sequence, Tuple
 
 from docx import Document
 
-import convert_to_plosone as conv
 import scholarref as sref
+
+try:
+    import convert_to_plosone as conv
+except ModuleNotFoundError:
+    conv = None
 
 FIG_CAP_HEAD_RE = re.compile(r"^Fig\.?\s*(\d+)\b", re.IGNORECASE)
 FIG_REF_RE = re.compile(r"\bFigs?\.?\s*([0-9][0-9,\sand\-]*)", re.IGNORECASE)
@@ -72,6 +76,16 @@ def _split_authors_and_title(vancouver_rest: str) -> Tuple[str, str]:
 
 def _find_reference_header(doc: Document) -> int:
     return sref.ensure_reference_header(doc)
+
+
+def _require_private_full_profile_support():
+    if conv is None:
+        raise RuntimeError(
+            "The 'full' verification profile requires the private local "
+            "'convert_to_plosone.py' module, which is not distributed with ScholarRef. "
+            "Use '--profile references-only' for the public GitHub build."
+        )
+    return conv
 
 
 def _extract_output_references(doc: Document) -> Tuple[int, List[OutputReference], List[str]]:
@@ -290,19 +304,20 @@ def _build_expected_order_from_source(src_doc: Document, profile: str):
         return refs, ordered
 
     # Mirror full manuscript converter preprocessing.
-    conv.fix_title(src_doc)
-    conv.add_short_title(src_doc)
-    conv.clean_title_page(src_doc)
-    conv.fix_section_headers(src_doc)
-    conv.dismantle_declarations(src_doc)
+    full_profile = _require_private_full_profile_support()
+    full_profile.fix_title(src_doc)
+    full_profile.add_short_title(src_doc)
+    full_profile.clean_title_page(src_doc)
+    full_profile.fix_section_headers(src_doc)
+    full_profile.dismantle_declarations(src_doc)
 
     ref_idx = _find_reference_header(src_doc)
     if ref_idx == -1:
         raise RuntimeError("Could not find reference header in source document.")
 
     ref_texts = [p.text.strip() for p in src_doc.paragraphs[ref_idx + 1 :] if p.text.strip()]
-    refs = [conv.parse_ref(t) for t in ref_texts]
-    engine = conv.CitationEngine(refs)
+    refs = [full_profile.parse_ref(t) for t in ref_texts]
+    engine = full_profile.CitationEngine(refs)
     engine.scan(src_doc.paragraphs[:ref_idx])
     ordered = [engine.by_key[k] for k in engine.order if k in engine.by_key]
     return refs, ordered
@@ -323,7 +338,7 @@ def _lead_author_ok(source_ref: dict, out_ref: OutputReference) -> bool:
     return src_lead in out_lead or out_lead in src_lead
 
 
-def verify(source_path: str, output_path: str, profile: str = "full") -> int:
+def verify(source_path: str, output_path: str, profile: str = "references-only") -> int:
     failures: List[str] = []
     warnings: List[str] = []
 
@@ -347,6 +362,7 @@ def verify(source_path: str, output_path: str, profile: str = "full") -> int:
     used_set = set(used_nums)
 
     if profile == "full":
+        full_profile = _require_private_full_profile_support()
         # Structural section checks around declarations/acknowledgments.
         ack_indices = [i for i, p in enumerate(out_doc.paragraphs) if p.text.strip() == "Acknowledgments"]
         if len(ack_indices) != 1:
@@ -381,7 +397,7 @@ def verify(source_path: str, output_path: str, profile: str = "full") -> int:
         warnings.extend(fig_warn)
 
         # Revised-submission title guidance: 15 words or fewer.
-        title_text = conv._extract_main_title(out_doc)
+        title_text = full_profile._extract_main_title(out_doc)
         if title_text:
             title_words = len(WORD_RE.findall(title_text))
             if title_words > 15:
@@ -537,8 +553,11 @@ def main() -> int:
     parser.add_argument(
         "--profile",
         choices=["full", "references-only"],
-        default="full",
-        help="Use 'full' for manuscript-wide conversion checks; 'references-only' for ScholarRef outputs.",
+        default="references-only",
+        help=(
+            "Use 'references-only' for public ScholarRef outputs. "
+            "'full' requires the private local convert_to_plosone.py module."
+        ),
     )
     args = parser.parse_args()
     return verify(args.source, args.output, profile=args.profile)
