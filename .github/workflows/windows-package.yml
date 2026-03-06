@@ -85,3 +85,4 @@ jobs:
             dist/ScholarRef-setup-*.exe
             dist/SHA256SUMS.txt
             dist/release-manifest.json
+          fail_on_unmatched_files: false
