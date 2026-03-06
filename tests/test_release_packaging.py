@@ -53,5 +53,6 @@ def test_workflow_builds_installer_and_release_metadata() -> None:
     assert "docs/windows-trust-and-signing.md" in readme
     assert "unknown publisher" in readme.lower()
     assert "scholarref-mark.ico" in spec
+    assert "pyproject.toml" in spec
     assert "Windows Packaging" in release_cfg
     assert "Latest Windows Release" in issue_cfg

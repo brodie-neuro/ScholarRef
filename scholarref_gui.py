@@ -146,13 +146,13 @@ class ScholarRefApp(ctk.CTk):
         ctk.set_default_color_theme("green") # we override with teal anyway
         
         try:
-            logo_path = scholarref_runtime.resource_path("logo", "logo-removebg-preview (1).png")
+            logo_path = scholarref_runtime.resource_path("logo", "logo_removebg.png")
             if tk.TkVersion >= 8.6:
                 img = tk.PhotoImage(file=str(logo_path))
                 self.iconphoto(False, img)
                 self._icon_image = img
             else:
-                self.iconbitmap(str(logo_path))
+                self.iconbitmap(str(scholarref_runtime.resource_path("logo", "scholarref-mark.ico")))
         except Exception:
             LOG.exception("Could not set application icon")
 

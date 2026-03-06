@@ -10,8 +10,9 @@ project_root = Path(SPECPATH)
 datas = collect_data_files("customtkinter")
 datas += copy_metadata("scholarref")
 datas += [
+    (str(project_root / "pyproject.toml"), "."),
     (str(project_root / "logo" / "logo.png"), "logo"),
-    (str(project_root / "logo" / "logo-removebg-preview (1).png"), "logo"),
+    (str(project_root / "logo" / "logo_removebg.png"), "logo"),
     (str(project_root / "logo" / "scholarref-mark.ico"), "logo"),
 ]
 

@@ -25,18 +25,23 @@ def _version_from_package_metadata() -> str | None:
 
 
 def _version_from_pyproject() -> str | None:
-    pyproject = Path(__file__).resolve().with_name("pyproject.toml")
-    if not pyproject.exists():
-        return None
+    bundle_base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    candidates = [
+        bundle_base / "pyproject.toml",
+        Path(__file__).resolve().with_name("pyproject.toml"),
+    ]
+    for pyproject in candidates:
+        if not pyproject.exists():
+            continue
 
-    try:
-        text = pyproject.read_text(encoding="utf-8")
-    except OSError:
-        return None
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            continue
 
-    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', text)
-    if match:
-        return match.group(1)
+        match = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', text)
+        if match:
+            return match.group(1)
     return None
 
 

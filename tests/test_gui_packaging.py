@@ -16,7 +16,8 @@ def test_gui_smoke_test_mode() -> None:
     rc = scholarref_gui.main(["--smoke-test"])
     assert rc == 0
     assert scholarref_runtime.resource_path("logo", "logo.png").exists()
-    assert scholarref_runtime.resource_path("logo", "logo-removebg-preview (1).png").exists()
+    assert scholarref_runtime.resource_path("logo", "logo_removebg.png").exists()
+    assert scholarref_runtime.resource_path("logo", "scholarref-mark.ico").exists()
 
 
 def test_configure_logging_falls_back_when_primary_log_is_blocked(monkeypatch, tmp_path: Path) -> None:
