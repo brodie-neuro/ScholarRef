@@ -7,7 +7,7 @@ authors:
     given-names: "Brodie E."
 version: "1.0.1"
 date-released: "2026-03-05"
-license: "ANM-1.0"
+license: "MIT"
 keywords:
   - references
   - citations

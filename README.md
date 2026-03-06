@@ -166,6 +166,4 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test_windows_installer.ps1
 
 ## License
 
-All Rights Reserved. See `LICENSE` for details.
-
-This repository is closed-source and not licensed for unauthorized modification, derivative work, or redistribution without written permission from the author.
+MIT License. See [LICENSE](LICENSE) for details.
