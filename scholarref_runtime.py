@@ -41,7 +41,7 @@ def _version_from_pyproject() -> str | None:
 
 
 def resolve_app_version() -> str:
-    return _version_from_package_metadata() or _version_from_pyproject() or "1.0.0"
+    return _version_from_pyproject() or _version_from_package_metadata() or "1.0.1"
 
 
 APP_VERSION = resolve_app_version()

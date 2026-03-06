@@ -1,7 +1,7 @@
 #define MyAppName "ScholarRef"
 #define MyAppVersion GetEnv("SCHOLARREF_VERSION")
 #if MyAppVersion == ""
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.1"
 #endif
 #define MyAppPublisher "Brodie Mangan"
 #define MyAppExeName "ScholarRef.exe"

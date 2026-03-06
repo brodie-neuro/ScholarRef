@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scholarref"
-version = "1.0.0"
+version = "1.0.1"
 description = "A professional Python tool and modern desktop GUI for converting academic citations and document formatting (APA 7, Harvard, Vancouver) in Microsoft Word (.docx) files."
 readme = "README.md"
 authors = [
