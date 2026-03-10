@@ -60,3 +60,24 @@ debug_refs2.py
 debug_refs_output.txt
 debug_refs2_output.txt
 PROMPT_apa_to_plosone_converter.md
+
+# PLOS ONE manuscript prep scripts & artifacts
+fix_figures_plosone.py
+upscale_figures.py
+strip_images.py
+strip_images_regex.py
+strip_images_xml.py
+find_images_xml.py
+remove_empty_lines.py
+tmp_check_plosone.py
+ref_extract.txt
+upscale_log.txt
+plosone_figures/
+
+# Build/CI artifacts
+ci-artifacts/
+
+# Logs & temp files
+*.log
+~*.tmp
+*.tmp

@@ -58,6 +58,8 @@ JABBR: Dict[str, str] = {
         "J Exp Psychol Learn Mem Cogn",
     "Journal of Experimental Psychology: General": "J Exp Psychol Gen",
     "Brain": "Brain",
+    "Brain : a journal of neurology": "Brain",
+    "Brain: a journal of neurology": "Brain",
     "Brain and Cognition": "Brain Cogn",
     "Journal of Statistical Software": "J Stat Softw",
     "Current Opinion in Neurobiology": "Curr Opin Neurobiol",
@@ -115,6 +117,17 @@ JABBR: Dict[str, str] = {
     "International Journal of Psychophysiology": "Int J Psychophysiol",
     "Journal of Cognitive Psychology": "J Cogn Psychol",
 }
+
+# Case-insensitive JABBR lookup: maps lowercased full name -> abbreviated name
+_JABBR_LOWER: Dict[str, str] = {k.lower(): v for k, v in JABBR.items()}
+
+
+def _jabbr_lookup(journal: str) -> str:
+    """Case-insensitive journal abbreviation lookup."""
+    hit = JABBR.get(journal)
+    if hit is not None:
+        return hit
+    return _JABBR_LOWER.get(journal.lower(), journal)
 
 
 def full_text(para) -> str:
@@ -735,13 +748,34 @@ def _split_title_and_source(after_clean: str) -> Tuple[str, str]:
             rest = s[close_idx + 1 :].lstrip(" ,.;")
             return title, rest
 
+    s_lower = s.lower()
     for jn in sorted(JABBR, key=len, reverse=True):
-        pos = s.find(jn)
-        if pos > 0:
+        jn_lower = jn.lower()
+        # Only match the journal name at a position preceded by ". " or "," or
+        # start-of-string to avoid "Brain" matching inside "brain imaging" etc.
+        search_start = 0
+        while True:
+            pos = s_lower.find(jn_lower, search_start)
+            if pos < 0:
+                break
+            # Must be preceded by '. ' or ',' or be a clear field boundary
+            if pos > 0:
+                pre_char = s[pos - 1]
+                pre2 = s[max(0, pos - 2) : pos]
+                # Accept if preceded by ". " or ", " or at start after separator
+                if pre2 not in (". ", ", ") and pre_char not in (".", ","):
+                    search_start = pos + 1
+                    continue
+            # Also check that the match ends at a word boundary
+            end_pos = pos + len(jn_lower)
+            if end_pos < len(s) and s[end_pos].isalpha():
+                search_start = pos + 1
+                continue
             title = s[:pos].rstrip(" ,.;")
             rest = s[pos:].lstrip(" ,.;")
             if title:
                 return title, rest
+            search_start = pos + 1
 
     if ". " in s:
         title, rest = s.rsplit(". ", 1)
@@ -767,13 +801,30 @@ def _parse_source_fields(source: str) -> Tuple[str, str, str, str, bool]:
         vol = (vm.group(1) or "").strip()
         issue = (vm.group(2) or "").strip()
         pages = _clean_pages(vm.group(3) or "")
+        # Detect page-range-only (no volume): if what we captured as "vol" is
+        # actually a page range like "1" followed by en-dash/hyphen digits in
+        # what was parsed as pages, and there's no issue, re-interpret.
+        if vol and not issue and not pages:
+            # Check if the remainder after journal contains a page-range pattern
+            after_journal = src[vm.start():].strip(", ")
+            pr = re.match(r'^(\d+\s*[-–]\s*\d+)$', after_journal)
+            if pr:
+                journal = src[: vm.start()].strip(" ,.")
+                vol = ""
+                pages = _clean_pages(pr.group(1))
     else:
-        pm = re.search(r",\s*(pp?\.\s*.+)$", src, flags=re.I)
-        if pm:
-            journal = src[: pm.start()].strip(" ,.")
-            pages = _clean_pages(pm.group(1))
+        # Check for page-range-only pattern: "Journal, 1-11" or "Journal, 1–11"
+        prm = re.search(r',\s*(\d+\s*[-–]\s*\d+)\s*$', src)
+        if prm:
+            journal = src[: prm.start()].strip(" ,.")
+            pages = _clean_pages(prm.group(1))
         else:
-            journal = src.strip(" ,.")
+            pm = re.search(r",\s*(pp?\.\s*.+)$", src, flags=re.I)
+            if pm:
+                journal = src[: pm.start()].strip(" ,.")
+                pages = _clean_pages(pm.group(1))
+            else:
+                journal = src.strip(" ,.")
 
     if pages in {"p", "pp"}:
         pages = ""
@@ -791,21 +842,30 @@ def _parse_apa_authors(s: str) -> List[Tuple[str, str]]:
         return bool(compact) and compact.isalpha() and compact.upper() == compact
 
     def _norm_initials(token: str) -> str:
-        letters = re.findall(r"[A-Z]", token or "")
+        # Use character-level isupper() to capture accented uppercase (Á, É, etc.)
+        letters = [ch for ch in (token or "") if ch.isalpha() and ch.isupper()]
         return " ".join(f"{ch}." for ch in letters)
 
     # Handle compact Harvard-style "Surname, X.Y. et al." author strings.
+    # Only use this shortcut for single-author-et-al patterns. Multi-author
+    # lists like "A, H., B, N. J., C, S., et al." must fall through to the
+    # standard surname/initials pairing loop below.
     etal_match = re.match(r"^(.*?)(?:,?\s+)?et al\.?$", s, flags=re.I)
     if etal_match:
         lead = etal_match.group(1).strip().rstrip(",")
-        if "," in lead:
+        comma_count = lead.count(",")
+        if comma_count == 1:
+            # Single author: "Surname, X.Y."
             sn, ini = lead.split(",", 1)
             sn = sn.strip()
             ini_norm = _norm_initials(ini)
             if sn:
                 return [(sn, ini_norm), ("et al.", "")]
-        if lead:
-            return [(lead, ""), ("et al.", "")]
+        elif comma_count == 0:
+            # Org name or single surname: "Someone et al."
+            if lead:
+                return [(lead, ""), ("et al.", "")]
+        # else: multiple commas → multi-author list, fall through to standard parsing
 
     normalized = re.sub(r"\s+(?:&|and)\s+", ", ", s)
     parts = [p.strip() for p in normalized.split(",") if p.strip()]
@@ -1407,7 +1467,7 @@ def format_vancouver_reference(ref: dict, num: int) -> str:
     au = _vancouver_authors(ref["authors"]).strip().rstrip(".")
     ti = _strip_surrounding_quotes(ref["title"]).rstrip(" ,.;'\"“”‘’")
     ti_txt = _end_punct(ti)
-    ja = JABBR.get(ref["journal"], ref["journal"])
+    ja = _jabbr_lookup(ref["journal"])
     yr = ref["year"] + ref.get("ysuf", "")
     if ref.get("is_nature"):
         line = f"{num}. {au}. {ti_txt} {ja}. {yr};{ref['vol']}:{ref['pages']}."
